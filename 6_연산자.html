@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>연산자</title>
+    <script>
+        /*
+            연산자
+
+            1. 산술 연산자
+                +, -, *, /, %, **
+
+            2. 대입 연산자
+                =, +=, -=, /=, %=
+
+            3. 비교 연산자
+                ==, !=, >, <, >=, <=
+                ===
+                !==
+                == : 값만 비교
+                === : 값 + 타입까지 비교
+                10 == "10" -> true 데이터 '형'까지 같아야 함
+                10 === "10" -> false 데이터와 '타입'까지 같아야 참
+
+                != : 값만 비교 (같지 않다)
+                !== : 값 + 타입 비교 (값 또는 타입을 비교)
+
+                10 != "10" -> false 자동형변환으로 같기 때문에
+                10 !== "10" -> true, !(a==b)a 또는 b 가 같은가?
+
+            4. 논리 연산자 (파이썬과 동일)
+                && : and
+                || : or
+                ! : not
+
+            5. 증감 연산자
+                ++ : 값을 1 증가
+                -- : 값을 1 감소
+
+            6. 문자열 연산자
+                + : 문자열을 연결할 때 사용
+
+            7. 조건(삼항) 연산자
+                조건에 따라 다른 값을 선택
+                조건 ? 값1 : 값2
+
+            8. 타입 관련 연산자
+                typeof : 변수의 타입을 반환
+                instanceof  :  변수가 특정 객체의 타입인지 확인
+
+            9. 기타 연산자
+                , : 여러 표현식 나열
+                ?. : 옵셔널 체이닝(null인지 아닌지 체크)
+                ?? : null 병합 연산자 (null일 경우 특정값을 반환)
+        */
+    </script>
+</head>
+<body>
+    <script>
+
+        // 비교 연산자
+        console.log(5 == "5") // "5" 자동형변환으로 인해 둘의 값이 같음
+        console.log(5 === "5") // 둘의 데이터 값이 같지 않음
+
+        // 증감 연산자
+        let count = 1 
+        count++ // count변수에 1 증가했기 때문에 2
+        console.log(count)
+        count-- // 1 감소했기 때문에 1
+        console.log(count)
+        let result = ++count // 전치 연산자엔 우선순위가 있는데 대입 연산자가 우선순위가 낮지만 증감 연산자의 후치 연산자는 대입보다 우선순위가 낮음
+        console.log(result) // result: 2
+        console.log(count)  // count: 2
+        result = count++ // 후치연산자라 대입보다 우선순위가 낮아졌기 때문에 이러한 결과가 나옴
+        console.log(result) // result: 2 ()
+        console.log(count)  // count: 3
+
+        // 조건(삼항) 연산자
+        let score = 85
+        result = score >= 60 ? "합격" : "불합격" // true : false
+        console.log(result)
+        
+        // 타입 관련 연산자
+        let num = 10
+        let arr = []
+        console.log(typeof num) // 타입이 뭐냐
+        console.log(arr instanceof Array) // 배열로 만든 객체냐? true
+
+        //기타 연산자
+        let x = (1, 2, 3, 4, 10)
+        console.log(x) // 마지막으로 저장된 값을 나열식 연산해서 출력
+        let user = null // 현재 객체에 아무것도 없음
+        //console.log(user.name) // 객체안에 아무것도 없는데 출력하려 하면 에러가 발생
+        console.log(user?.name) // 에러가 날 법한 에러를 undefined
+        let value = "안녕" // null
+        let resultValue = value ?? "기본값"
+        console.log(resultValue) 
+    </script>
+</body>
+</html>
