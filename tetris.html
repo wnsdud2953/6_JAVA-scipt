@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>웹 생존 FPS</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+            font-family: 'Malgun Gothic', sans-serif;
+        }
+        
+        /* 조준점 */
+        #crosshair {
+            position: absolute; 
+            top: 50%; left: 50%;
+            width: 8px; height: 8px; 
+            background-color: #00ff00; 
+            transform: translate(-50%, -50%); 
+            border-radius: 50%;
+            pointer-events: none; 
+            z-index: 100;
+        }
+
+        /* 게임 시작/오버 안내 화면 */
+        #blocker {
+            position: absolute; top: 0; left: 0; 
+            width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.8); 
+            color: white;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 200; cursor: pointer;
+        }
+
+        /* UI 컨테이너 (상단 배치) */
+        #ui-container {
+            position: absolute; top: 20px; left: 20px;
+            z-index: 100; pointer-events: none;
+            width: 300px;
+        }
+
+        #score-board {
+            color: white; font-size: 24px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            margin-bottom: 10px;
+        }
+
+        /* 체력바 배경 (회색) */
+        #health-bg {
+            width: 100%; height: 20px;
+            background-color: rgba(100, 100, 100, 0.7);
+            border: 2px solid white;
+        }
+
+        /* 체력바 게이지 (빨간색) */
+        #health-bar {
+            width: 100%; height: 100%;
+            background-color: #ff3333;
+            transition: width 0.1s; /* 체력이 깎일 때 부드럽게 줄어듦 */
+        }
+        
+        /* 피격 효과 (화면이 빨개짐) */
+        #damage-overlay {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(255, 0, 0, 0);
+            pointer-events: none;
+            z-index: 50;
+            transition: background-color 0.2s;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="ui-container">
+        <div id="score-board">점수: <span id="score">0</span></div>
+        <div id="health-bg"><div id="health-bar"></div></div>
+    </div>
+    
+    <div id="damage-overlay"></div>
+    <div id="crosshair"></div>
+    
+    <div id="blocker">
+        <h1 id="main-title">좀비 생존 FPS</h1>
+        <p id="sub-title">화면을 클릭하여 게임을 시작하세요!</p>
+        <p style="color: #aaa; margin-top: 20px;">이동: WASD | 시점: 마우스 | 사격: 좌클릭</p>
+    </div>
+
+    <script>
+        // 1. 기본 셋업
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e); // 어두운 밤하늘
+        scene.fog = new THREE.Fog(0x1a1a2e, 10, 40);  // 으스스한 안개
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = 1.6; 
+        
+        // ★ 내 시야에 보이는 총 만들기
+        const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+        const gunMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        const gun = new THREE.Mesh(gunGeo, gunMat);
+        // 총의 위치를 카메라 기준(오른쪽 아래 뻗은 상태)으로 세팅
+        gun.position.set(0.2, -0.2, -0.4); 
+        camera.add(gun); // 총을 카메라의 자식으로 등록 (고개 돌릴 때 같이 돌아감)
+        scene.add(camera); // 카메라에 자식이 생겼으므로 씬에 카메라를 명시적으로 추가해야 함
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 2. 조명 & 바닥
+        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        light.position.set(0, 20, 0);
+        scene.add(light);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshLambertMaterial({ color: 0x222222 }); // 어두운 바닥
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // 3. 플레이어 상태
+        let score = 0;
+        let health = 100;
+        let isGameOver = false;
+        
+        const scoreUI = document.getElementById('score');
+        const healthBarUI = document.getElementById('health-bar');
+        const damageOverlay = document.getElementById('damage-overlay');
+        const blocker = document.getElementById('blocker');
+        const mainTitle = document.getElementById('main-title');
+
+        // 4. 적(좀비) AI 시스템
+        const enemies = [];
+        const enemyGeo = new THREE.BoxGeometry(1, 2, 1); // 사람 형태의 길쭉한 박스
+        const enemyMat = new THREE.MeshLambertMaterial({ color: 0x00ff00 }); // 초록색 좀비
+
+        function spawnEnemy() {
+            if (isGameOver) return;
+            const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+            
+            // 플레이어에게서 일정 거리 이상 떨어진 곳에서 스폰
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 20 + Math.random() * 10; 
+            enemy.position.set(
+                camera.position.x + Math.cos(angle) * radius, 
+                1, // 높이의 절반
+                camera.position.z + Math.sin(angle) * radius
+            );
+            scene.add(enemy);
+            enemies.push(enemy);
+        }
+
+        // 초기 적 5마리 스폰
+        for(let i = 0; i < 5; i++) spawnEnemy();
+
+        // 5. 조작 시스템 (마우스 & 키보드)
+        let isLocked = false;
+        const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+        blocker.addEventListener('click', () => {
+            if (isGameOver) restartGame();
+            else document.body.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === document.body) {
+                isLocked = true;
+                blocker.style.display = 'none';
+            } else {
+                isLocked = false;
+                if (!isGameOver) blocker.style.display = 'flex';
+            }
+        });
+
+        document.addEventListener('mousemove', (event) => {
+            if (!isLocked || isGameOver) return;
+            euler.setFromQuaternion(camera.quaternion);
+            euler.y -= event.movementX * 0.002;
+            euler.x -= event.movementY * 0.002;
+            euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.x)); 
+            camera.quaternion.setFromEuler(euler);
+        });
+
+        const keys = { w: false, a: false, s: false, d: false };
+        document.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+        document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+        // 6. 사격 시스템
+        const raycaster = new THREE.Raycaster();
+        
+        document.addEventListener('mousedown', (e) => {
+            if (!isLocked || e.button !== 0 || isGameOver) return; 
+
+            // 반동 효과 (총을 살짝 뒤로 뺐다가 복구)
+            gun.position.z += 0.05;
+            setTimeout(() => { gun.position.z -= 0.05; }, 50);
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(enemies);
+            
+            if (intersects.length > 0) {
+                const hitEnemy = intersects[0].object;
+                scene.remove(hitEnemy);
+                enemies.splice(enemies.indexOf(hitEnemy), 1);
+                
+                score += 100;
+                scoreUI.innerText = score;
+                
+                // 죽인 만큼 더 스폰 (점점 어려워짐)
+                spawnEnemy();
+                if (Math.random() > 0.5) spawnEnemy(); 
+            }
+        });
+
+        // 7. 게임 오버 및 재시작
+        function gameOver() {
+            isGameOver = true;
+            document.exitPointerLock();
+            mainTitle.innerText = "게임 오버!";
+            mainTitle.style.color = "red";
+            blocker.style.display = 'flex';
+        }
+
+        function restartGame() {
+            isGameOver = false;
+            health = 100;
+            score = 0;
+            healthBarUI.style.width = "100%";
+            scoreUI.innerText = "0";
+            camera.position.set(0, 1.6, 0);
+            
+            // 기존 적 모두 제거
+            enemies.forEach(e => scene.remove(e));
+            enemies.length = 0;
+            for(let i = 0; i < 5; i++) spawnEnemy();
+            
+            mainTitle.innerText = "좀비 생존 FPS";
+            mainTitle.style.color = "white";
+            document.body.requestPointerLock();
+        }
+
+        // 8. 게임 루프 & AI 이동
+        let prevTime = performance.now();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            if (isLocked && !isGameOver) {
+                // 플레이어 이동
+                const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                camDir.y = 0; camDir.normalize();
+                const rightDir = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                rightDir.y = 0; rightDir.normalize();
+
+                const speed = 10 * delta;
+                if (keys.w) camera.position.addScaledVector(camDir, speed);
+                if (keys.s) camera.position.addScaledVector(camDir, -speed);
+                if (keys.d) camera.position.addScaledVector(rightDir, speed);
+                if (keys.a) camera.position.addScaledVector(rightDir, -speed);
+
+                // ★ 적 AI 이동 로직
+                enemies.forEach(enemy => {
+                    // 적이 나를 쳐다보게 함
+                    enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+                    
+                    // 나와 적 사이의 방향 벡터 계산
+                    const direction = new THREE.Vector3().subVectors(camera.position, enemy.position);
+                    direction.y = 0; // 공중으로 날지 못하게 Y축 고정
+                    const distance = direction.length();
+                    direction.normalize();
+
+                    // 적 이동 속도 (초당 3)
+                    if (distance > 1.2) {
+                        enemy.position.addScaledVector(direction, 3 * delta);
+                    } else {
+                        // 너무 가까우면 플레이어 공격 (데미지)
+                        health -= 20 * delta; // 1초에 20씩 체력 깎임
+                        healthBarUI.style.width = Math.max(0, health) + "%";
+                        
+                        // 화면 피격 효과 (화면이 빨개짐)
+                        damageOverlay.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
+                        setTimeout(() => damageOverlay.style.backgroundColor = "rgba(255, 0, 0, 0)", 100);
+
+                        if (health <= 0) gameOver();
+                    }
+                });
+            }
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
